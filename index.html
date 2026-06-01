@@ -1,0 +1,301 @@
+// ============================================================
+//  TG VERIFY SERVER — EK HI FILE — VERCEL DEPLOY READY
+//  Deploy: vercel --prod
+//  Routes:
+//    GET  /                        → Verification WebApp HTML
+//    GET  /bot_register?...        → Bot hash register
+//    POST /verify_callback         → Result receive + bot ko forward
+// ============================================================
+
+const store = {}; // Production mein Vercel KV use karo
+
+// ── HTML PAGE ────────────────────────────────────────────────
+const HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Verify — TG Bot</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#07070f;--card:#10101a;--brd:#1a1a2e;
+  --acc:#7c3aed;--teal:#06b6d4;--ok:#10b981;--warn:#f59e0b;
+  --tx:#e2e8f0;--mu:#64748b
+}
+body{
+  background:var(--bg);color:var(--tx);
+  font-family:'DM Sans',sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  overflow:hidden
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 55% 45% at 15% 15%,rgba(124,58,237,.18) 0%,transparent 65%),
+    radial-gradient(ellipse 45% 55% at 85% 85%,rgba(6,182,212,.12) 0%,transparent 65%);
+  animation:bg 9s ease-in-out infinite alternate
+}
+@keyframes bg{from{transform:scale(1)}to{transform:scale(1.08) rotate(2deg)}}
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(124,58,237,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(124,58,237,.03) 1px,transparent 1px);
+  background-size:44px 44px
+}
+.wrap{position:relative;z-index:10;width:100%;max-width:400px;padding:18px}
+.card{
+  background:var(--card);border:1px solid var(--brd);border-radius:22px;
+  padding:36px 28px;
+  box-shadow:0 0 0 1px rgba(124,58,237,.08),0 28px 60px rgba(0,0,0,.55),
+             inset 0 1px 0 rgba(255,255,255,.04);
+  animation:cardIn .65s cubic-bezier(.34,1.56,.64,1) both
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(28px) scale(.94)}to{opacity:1;transform:none}}
+
+/* Icon */
+.icon{
+  width:68px;height:68px;margin:0 auto 24px;
+  background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(6,182,212,.14));
+  border:1px solid rgba(124,58,237,.28);border-radius:18px;
+  display:flex;align-items:center;justify-content:center;font-size:30px;
+  animation:glow 3s ease-in-out infinite;
+  box-shadow:0 0 28px rgba(124,58,237,.2)
+}
+@keyframes glow{0%,100%{box-shadow:0 0 20px rgba(124,58,237,.2)}50%{box-shadow:0 0 42px rgba(124,58,237,.45)}}
+
+h1{
+  font-family:'Syne',sans-serif;font-size:20px;font-weight:800;text-align:center;
+  background:linear-gradient(135deg,#e2e8f0,#a78bfa);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:6px
+}
+.sub{text-align:center;color:var(--mu);font-size:12.5px;margin-bottom:28px;line-height:1.55}
+
+/* Steps */
+.steps{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}
+.step{
+  display:flex;align-items:center;gap:11px;
+  background:rgba(255,255,255,.025);border:1px solid var(--brd);border-radius:11px;
+  padding:11px 13px;font-size:12.5px;color:#94a3b8;transition:all .35s
+}
+.step.active{border-color:rgba(124,58,237,.4);background:rgba(124,58,237,.07);color:var(--tx)}
+.step.done{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.06);color:#6ee7b7}
+.sn{
+  width:24px;height:24px;border-radius:50%;flex-shrink:0;
+  background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.3);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:#a78bfa
+}
+.step.done .sn{background:rgba(16,185,129,.2);border-color:rgba(16,185,129,.3);color:#10b981}
+
+/* Button */
+.btn{
+  width:100%;padding:15px;border:none;border-radius:13px;cursor:pointer;
+  background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;
+  font-family:'Syne',sans-serif;font-size:14.5px;font-weight:700;letter-spacing:.4px;
+  position:relative;overflow:hidden;transition:all .3s;
+  box-shadow:0 8px 22px rgba(124,58,237,.38)
+}
+.btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.1),transparent)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(124,58,237,.52)}
+.btn:active{transform:none}
+.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+
+.spin{
+  display:inline-block;width:14px;height:14px;
+  border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:7px
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* Result */
+.result{display:none;text-align:center;animation:fi .45s ease}
+@keyframes fi{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}
+.result.show{display:block}
+.ri{font-size:50px;margin-bottom:14px;display:block}
+.result h2{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-bottom:8px}
+.result p{font-size:12.5px;color:var(--mu);line-height:1.6}
+.result.ok h2{color:var(--ok)}
+.result.er h2{color:var(--warn)}
+
+.badge{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  margin-top:18px;font-size:10.5px;color:#334155
+}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+
+  <!-- Main UI -->
+  <div id="main">
+    <div class="icon">🔐</div>
+    <h1>Verify Yourself</h1>
+    <p class="sub">Bot use karne se pehle ek baar verify karo.<br>Sirf real users ke liye.</p>
+
+    <div class="steps">
+      <div class="step active" id="s1"><div class="sn" id="n1">1</div><span>Verification page khola</span></div>
+      <div class="step"        id="s2"><div class="sn" id="n2">2</div><span>Device check ho raha hai</span></div>
+      <div class="step"        id="s3"><div class="sn" id="n3">3</div><span>Result bot ko bhej raha hai</span></div>
+    </div>
+
+    <button class="btn" id="btn" onclick="go()">🛡️ &nbsp;Start Verification</button>
+    <div class="badge">🔒 One-time · No data stored · Secure</div>
+  </div>
+
+  <!-- Success -->
+  <div class="result ok" id="ok">
+    <span class="ri">✅</span>
+    <h2>Verified!</h2>
+    <p>Bot pe wapas jao aur sab features enjoy karo.</p>
+  </div>
+
+  <!-- Same device -->
+  <div class="result er" id="er">
+    <span class="ri">⚠️</span>
+    <h2>Same Device Detected</h2>
+    <p>System ne same device detect kiya.<br>Referral earn karna phir bhi ho sakta hai!</p>
+  </div>
+
+</div></div>
+
+<script>
+const p = new URLSearchParams(location.search);
+const botHash = p.get('bot_hash') || '';
+const tg = window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand();}
+const uid = tg?.initDataUnsafe?.user?.id || null;
+
+async function go(){
+  const btn=document.getElementById('btn');
+  btn.disabled=true;
+  btn.innerHTML='<span class="spin"></span> Checking...';
+  await sl(700); step(2);
+  await sl(900); step(3);
+  await sl(600);
+
+  const same = isSame();
+  const status = same ? 'error' : 'success';
+
+  try{
+    await fetch('/verify_callback',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({botHash,status,userId:uid})
+    });
+  }catch(e){}
+
+  if(tg) tg.sendData(JSON.stringify({status,botHash,userId:uid}));
+
+  document.getElementById('main').style.display='none';
+  document.getElementById(status==='success'?'ok':'er').classList.add('show');
+  if(tg) setTimeout(()=>tg.close(),2600);
+}
+
+function step(n){
+  for(let i=1;i<=3;i++){
+    const el=document.getElementById('s'+i);
+    const nm=document.getElementById('n'+i);
+    if(i<n){el.className='step done';nm.textContent='✓';}
+    else if(i===n){el.className='step active';}
+    else{el.className='step';}
+  }
+}
+
+function isSame(){
+  try{
+    const k='tgv_'+(botHash.slice(0,8)||'x');
+    if(localStorage.getItem(k)) return true;
+    localStorage.setItem(k,'1');
+  }catch(e){}
+  return false;
+}
+
+const sl=ms=>new Promise(r=>setTimeout(r,ms));
+</script>
+</body></html>`;
+
+// ── HANDLER ──────────────────────────────────────────────────
+export default async function handler(req, res) {
+  const { url, method } = req;
+  const path = url.split("?")[0];
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (method === "OPTIONS") return res.status(200).end();
+
+  // ── GET / → Verification WebApp Page ──
+  if (method === "GET" && (path === "/" || path === "/index.html" || path === "/txg-maker/index.html")) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(HTML);
+  }
+
+  // ── GET /bot_register → Hash + Webhook Register ──
+  if (method === "GET" && (path === "/bot_register" || path === "/txg-maker/bot_register.php")) {
+    const q = new URLSearchParams(url.split("?")[1] || "");
+    const botHash   = q.get("botHash");
+    const bot       = q.get("bot");
+    const webhookUrl = q.get("webhook_url");
+    const botToken  = q.get("bot_token");
+
+    if (!botHash || !bot || !webhookUrl || !botToken) {
+      return res.status(400).json({ status: "error", message: "Missing params" });
+    }
+
+    store[botHash] = { bot, webhookUrl, botToken, createdAt: Date.now() };
+    console.log(`[REGISTER] ${bot} hash=${botHash}`);
+
+    return res.status(200).json({ status: "success", message: "Bot registered", botHash });
+  }
+
+  // ── POST /verify_callback → Result Receive + Forward to Bot Webhook ──
+  if (method === "POST" && path === "/verify_callback") {
+    let body = {};
+    try {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      body = JSON.parse(Buffer.concat(chunks).toString());
+    } catch (e) {}
+
+    const { botHash, status, userId } = body;
+    if (!botHash || !status || !userId) {
+      return res.status(400).json({ status: "error", message: "Missing params" });
+    }
+
+    const session = store[botHash];
+
+    // Forward result to bot's webhook_url
+    const payload = {
+      status: status === "success" ? "success" : "error",
+      title:  status === "success" ? "Verified ✅" : "Same Device Detected",
+      message: status === "success"
+        ? "Verification successful! You can now use the bot."
+        : "Same device detected. Referral earnings still active.",
+      userId,
+      botHash,
+    };
+
+    if (session?.webhookUrl) {
+      try {
+        await fetch(session.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        console.log(`[CALLBACK] userId=${userId} status=${status} → forwarded`);
+      } catch (e) {
+        console.warn("[CALLBACK] Forward failed:", e.message);
+      }
+    }
+
+    return res.status(200).json(payload);
+  }
+
+  // ── 404 ──
+  return res.status(404).json({ status: "error", message: "Not found" });
+}
+  
